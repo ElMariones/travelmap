@@ -18,9 +18,9 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 
-# Xcode workspace / project user state
+# Xcode workspace / project user state. The project itself is committed,
+# along with its shared scheme and resolved package versions.
 *.xcworkspace/xcuserdata/
-*.xcworkspace/contents.xcworkspacedata
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
@@ -29,7 +29,6 @@ xcuserdata/
 .build/
 .swiftpm/
 Packages/
-Package.resolved
 
 # Secrets — never commit
 .env

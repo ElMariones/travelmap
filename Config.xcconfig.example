@@ -1,0 +1,16 @@
+// TravelMap build configuration.
+//
+//   cp Config.xcconfig.example Config.xcconfig
+//
+// then fill in the two values below from your Supabase project's
+// Settings -> API page. Config.xcconfig is git-ignored; this template is not,
+// so never put real keys in this file.
+//
+// The $() below is an empty xcconfig variable. It exists only to break up the
+// "//" in the URL, which xcconfig would otherwise strip as a comment.
+
+SUPABASE_URL = https:$()//your-project-ref.supabase.co
+
+// The anon/publishable key — safe to ship in a client, since Row Level Security
+// is what actually protects the data. Never put the service_role key here.
+SUPABASE_ANON_KEY = your-anon-key
