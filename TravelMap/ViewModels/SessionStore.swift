@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Foundation
 import Supabase
 
@@ -18,6 +19,12 @@ final class SessionStore {
 
     /// Set after a sign-up that needs email confirmation, so the UI can explain the wait.
     var pendingEmailConfirmation: String?
+
+    /// Held between `SignInWithAppleButton`'s request and completion callbacks — the raw
+    /// half of the nonce whose hash went to Apple.
+    private var pendingAppleNonce: AppleSignIn.Nonce?
+    /// A name Apple returned before the session existed, applied once it does.
+    private var pendingAppleName: String?
 
     private var authService: AuthService?
     private var observationTask: Task<Void, Never>?
@@ -70,7 +77,18 @@ final class SessionStore {
         if state != .signedIn(userID: userID) {
             state = .signedIn(userID: userID)
         }
-        Task { await loadProfile(userID: userID) }
+        Task {
+            await applyPendingAppleName(userID: userID)
+            await loadProfile(userID: userID)
+        }
+    }
+
+    /// Apple hands over a name exactly once, on the first authorization, and the session
+    /// doesn't exist yet at that moment. This writes it as soon as one does.
+    private func applyPendingAppleName(userID: UUID) async {
+        guard let name = pendingAppleName, let authService else { return }
+        pendingAppleName = nil
+        try? await authService.updateDisplayName(name, userID: userID)
     }
 
     func loadProfile(userID: UUID) async {
@@ -103,4 +121,61 @@ final class SessionStore {
             errorMessage = error.localizedDescription
         }
     }
+
+    /// Permanently deletes the account. See `AuthService.deleteAccount`.
+    func deleteAccount() async throws {
+        guard let authService else { throw SupabaseNotConfiguredError() }
+        try await authService.deleteAccount()
+        AppleSignIn.storedUserID = nil
+        profile = nil
+        state = .signedOut
+    }
+
+    // MARK: - Sign in with Apple
+
+    /// Called from the button's `onRequest`. Mints the nonce and keeps the raw half.
+    func prepareAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = AppleSignIn.Nonce()
+        pendingAppleNonce = nonce
+        AppleSignIn.configure(request, nonce: nonce)
+    }
+
+    /// Called from the button's `onCompletion`.
+    func completeAppleSignIn(_ result: Result<ASAuthorization, any Error>) async throws {
+        guard let authService else { throw SupabaseNotConfiguredError() }
+        guard let nonce = pendingAppleNonce else { return }
+        pendingAppleNonce = nil
+
+        switch result {
+        case .failure(let error):
+            // Backing out of the sheet is a choice, not a problem to report.
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            throw AppleSignInError(message: AppleSignIn.message(for: error))
+
+        case .success(let authorization):
+            let credential = try AppleSignIn.credential(from: authorization)
+            AppleSignIn.rememberUserID(from: authorization)
+            pendingAppleName = credential.fullName
+            try await authService.signInWithApple(credential: credential, nonce: nonce)
+        }
+    }
+
+    /// Signs the user out if they revoked this app's Apple authorization elsewhere.
+    ///
+    /// Revoking in Settings is a decision; an app that stays signed in afterwards is
+    /// quietly ignoring it. Checked on launch and whenever the app comes back to the
+    /// foreground, since the notification only fires while the app is running.
+    func verifyAppleAuthorization() async {
+        guard AppleSignIn.storedUserID != nil, userID != nil else { return }
+        if await AppleSignIn.isStillAuthorized() == false {
+            AppleSignIn.storedUserID = nil
+            await signOut()
+        }
+    }
+}
+
+/// Carries an already-humanised Apple authorization failure to the UI.
+struct AppleSignInError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }

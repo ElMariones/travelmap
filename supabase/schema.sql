@@ -142,6 +142,39 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Deletes the calling user's account and everything attached to it.
+--
+-- Any app that can create an account has to be able to delete one (App Review
+-- Guideline 5.1.1(v)), and removing a row from auth.users is past what a client key can
+-- do. SECURITY DEFINER puts the deletion behind a function the caller can only invoke
+-- for themselves: auth.uid() is read inside, so there is no argument to tamper with.
+--
+-- The profile cascade takes visits, region_visits, friendships, and comments with it;
+-- storage objects have no foreign key, so they are removed explicitly first.
+create or replace function public.delete_account()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller uuid := auth.uid();
+begin
+  if caller is null then
+    raise exception 'delete_account requires an authenticated caller';
+  end if;
+
+  delete from storage.objects
+  where bucket_id = 'visit-photos'
+    and lower((storage.foldername(name))[1]) = caller::text;
+
+  delete from auth.users where id = caller;
+end;
+$$;
+
+revoke all on function public.delete_account() from public, anon;
+grant execute on function public.delete_account() to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
