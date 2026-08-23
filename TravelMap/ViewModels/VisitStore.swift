@@ -26,6 +26,9 @@ final class VisitStore {
     private(set) var visits: [Visit] = []
     private(set) var visitedCountryCodes: Set<String> = []
     private(set) var isLoadingVisits = false
+    /// Set when the bundled map data can't be read at all — the map then has nothing to
+    /// draw, so this has to reach the screen rather than sit behind a spinner forever.
+    private(set) var mapDataError: String?
     var errorMessage: String?
 
     private var hasLoadedMapData = false
@@ -36,9 +39,10 @@ final class VisitStore {
         guard !hasLoadedMapData else { return }
         do {
             mapData = try await GeoDataService.loadCountries()
+            mapDataError = nil
             hasLoadedMapData = true
         } catch {
-            errorMessage = error.localizedDescription
+            mapDataError = error.localizedDescription
         }
     }
 

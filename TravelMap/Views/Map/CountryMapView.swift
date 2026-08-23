@@ -13,12 +13,15 @@ struct CountryMapView: UIViewRepresentable {
     let focusedContinent: Continent?
     let onSelectCountry: (Country) -> Void
 
+    /// Keeps the camera clear of the badge and chips above and the tab bar below.
+    static let cameraPadding = UIEdgeInsets(top: 96, left: 8, bottom: 56, right: 8)
+
     func makeCoordinator() -> Coordinator {
         Coordinator(mapData: mapData, onSelectCountry: onSelectCountry)
     }
 
     func makeUIView(context: Context) -> MKMapView {
-        let mapView = MKMapView()
+        let mapView = LayoutReportingMapView()
         mapView.delegate = context.coordinator
 
         // A quiet base map: the country overlays carry all the meaning, so terrain,
@@ -32,7 +35,6 @@ struct CountryMapView: UIViewRepresentable {
         mapView.isRotateEnabled = false
         mapView.showsCompass = false
         mapView.showsScale = false
-        mapView.setRegion(Continent.worldRegion, animated: false)
 
         mapView.addOverlays(mapData.shapes.map(\.multiPolygon), level: .aboveRoads)
 
@@ -40,13 +42,18 @@ struct CountryMapView: UIViewRepresentable {
         mapView.addGestureRecognizer(tap)
         context.coordinator.mapView = mapView
 
+        // Framing the world needs the view's real size, which it doesn't have yet here.
+        mapView.onFirstLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.markReadyForCamera()
+        }
+
         return mapView
     }
 
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.onSelectCountry = onSelectCountry
         context.coordinator.applyVisitedCodes(visitedCountryCodes)
-        context.coordinator.focus(on: focusedContinent, in: mapView)
+        context.coordinator.focus(on: focusedContinent)
     }
 
     @MainActor
@@ -57,7 +64,9 @@ struct CountryMapView: UIViewRepresentable {
         private let mapData: CountryMapData
         private var renderers: [String: MKMultiPolygonRenderer] = [:]
         private var visitedCountryCodes: Set<String> = []
+        private var requestedContinent: Continent?
         private var appliedContinent: Continent??
+        private var isReadyForCamera = false
 
         init(mapData: CountryMapData, onSelectCountry: @escaping (Country) -> Void) {
             self.mapData = mapData
@@ -100,14 +109,29 @@ struct CountryMapView: UIViewRepresentable {
 
         // MARK: - Camera
 
-        func focus(on continent: Continent?, in mapView: MKMapView) {
+        /// Called once the map view has a real size, which is when framing can be trusted.
+        func markReadyForCamera() {
+            isReadyForCamera = true
+            applyCamera(animated: false)
+        }
+
+        func focus(on continent: Continent?) {
+            requestedContinent = continent
+            applyCamera(animated: true)
+        }
+
+        private func applyCamera(animated: Bool) {
+            guard isReadyForCamera, let mapView else { return }
             // `appliedContinent` is doubly optional on purpose: the outer nil means
             // "never applied", the inner nil means "the All chip".
-            guard appliedContinent == nil || appliedContinent! != continent else { return }
-            appliedContinent = .some(continent)
+            guard appliedContinent == nil || appliedContinent! != requestedContinent else { return }
+            appliedContinent = .some(requestedContinent)
 
-            let region = continent?.mapRegion ?? Continent.worldRegion
-            mapView.setRegion(mapView.regionThatFits(region), animated: true)
+            // MapKit hard-clamps a flat map's camera at roughly 38,500 km out, which on a
+            // portrait phone is about 95 degrees of longitude — the whole globe genuinely
+            // doesn't fit. Asking for `.world` gets MapKit's widest possible framing.
+            let rect = requestedContinent.map { MKMapRect(region: $0.mapRegion) } ?? .world
+            mapView.setVisibleMapRect(rect, edgePadding: CountryMapView.cameraPadding, animated: animated)
         }
 
         // MARK: - Selection
@@ -121,5 +145,20 @@ struct CountryMapView: UIViewRepresentable {
             UISelectionFeedbackGenerator().selectionChanged()
             onSelectCountry(country)
         }
+    }
+}
+
+/// An `MKMapView` that says when it first has a usable size, so the initial camera can
+/// be framed against real bounds instead of the zero rect it's created with.
+private final class LayoutReportingMapView: MKMapView {
+    var onFirstLayout: (() -> Void)?
+
+    private var hasReportedLayout = false
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard !hasReportedLayout, bounds.width > 0, bounds.height > 0 else { return }
+        hasReportedLayout = true
+        onFirstLayout?()
     }
 }

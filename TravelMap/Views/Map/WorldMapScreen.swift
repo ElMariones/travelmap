@@ -47,7 +47,15 @@ struct WorldMapScreen: View {
         } else {
             ZStack {
                 Color(.secondarySystemBackground)
-                ProgressView("Loading the world…")
+                if let mapDataError = visitStore.mapDataError {
+                    ContentUnavailableView(
+                        "Map data unavailable",
+                        systemImage: "globe.badge.chevron.backward",
+                        description: Text(mapDataError)
+                    )
+                } else {
+                    ProgressView("Loading the world…")
+                }
             }
         }
     }

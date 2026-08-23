@@ -62,6 +62,9 @@ final class CountryMapData: @unchecked Sendable {
 
 /// Loads and decodes the bundled Natural Earth GeoJSON.
 enum GeoDataService {
+    /// Folder reference inside the app bundle holding the Natural Earth assets.
+    static let mapDataDirectory = "MapData"
+
     enum LoadError: LocalizedError {
         case missingResource(String)
 
@@ -84,7 +87,13 @@ enum GeoDataService {
     /// kilobytes of JSON and several thousand polygon vertices.
     static func loadCountries() async throws -> CountryMapData {
         try await Task.detached(priority: .userInitiated) {
-            guard let url = Bundle.main.url(forResource: "countries", withExtension: "geojson") else {
+            // MapData is bundled as a folder reference, so the subdirectory is required —
+            // the flat lookup doesn't recurse and would silently come back nil.
+            guard let url = Bundle.main.url(
+                forResource: "countries",
+                withExtension: "geojson",
+                subdirectory: Self.mapDataDirectory
+            ) else {
                 throw LoadError.missingResource("countries.geojson")
             }
 

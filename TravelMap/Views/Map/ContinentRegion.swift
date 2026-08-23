@@ -23,11 +23,6 @@ extension Continent {
         }
     }
 
-    /// The whole world, used by the "All" chip.
-    static let worldRegion = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
-        span: MKCoordinateSpan(latitudeDelta: 130, longitudeDelta: 340)
-    )
 
     private func region(
         latitude: CLLocationDegrees,
@@ -38,6 +33,26 @@ extension Continent {
         MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
             span: MKCoordinateSpan(latitudeDelta: latitudeSpan, longitudeDelta: longitudeSpan)
+        )
+    }
+}
+
+extension MKMapRect {
+    /// The projected rect covering a coordinate region, corners included.
+    init(region: MKCoordinateRegion) {
+        let topLeft = MKMapPoint(CLLocationCoordinate2D(
+            latitude: min(region.center.latitude + region.span.latitudeDelta / 2, 85),
+            longitude: max(region.center.longitude - region.span.longitudeDelta / 2, -179.9)
+        ))
+        let bottomRight = MKMapPoint(CLLocationCoordinate2D(
+            latitude: max(region.center.latitude - region.span.latitudeDelta / 2, -85),
+            longitude: min(region.center.longitude + region.span.longitudeDelta / 2, 179.9)
+        ))
+        self.init(
+            x: min(topLeft.x, bottomRight.x),
+            y: min(topLeft.y, bottomRight.y),
+            width: abs(bottomRight.x - topLeft.x),
+            height: abs(bottomRight.y - topLeft.y)
         )
     }
 }
