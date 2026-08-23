@@ -2,7 +2,7 @@
 
 Log the countries you've been to and watch your world fill in with colour.
 
-iOS 17+ · SwiftUI · MapKit · Supabase
+iOS 26+ · SwiftUI · Liquid Glass · MapKit · Supabase
 
 <!-- Scope: V1 only. See "What's built" below. -->
 
@@ -10,7 +10,9 @@ iOS 17+ · SwiftUI · MapKit · Supabase
 
 **V1 — the core loop, working end to end:**
 
-- **Auth** — email + password via Supabase Auth
+- **Sign in with Apple** — the primary way in, with a hashed nonce, first-authorization
+  name capture, revocation handling, and in-app account deletion
+- **Email + password** — the alternative, behind a sheet so the landing stays one decision
 - **World map** — every country drawn as a MapKit overlay, filled with the accent
   colour when visited and neutral gray when not, over a deliberately muted base map
 - **Continent filter** — chips across the top fly the camera and re-scope the live
@@ -19,7 +21,7 @@ iOS 17+ · SwiftUI · MapKit · Supabase
   uploaded to Supabase Storage; the country fills in on the map immediately
 - **Country detail** — tap a country for your visits, notes, and photos, or to log it
 - **Stats** — overall percentage plus a per-continent breakdown
-- **Profile** — display name, friend code, sign out
+- **Profile** — display name, friend code, sign out, delete account
 
 **Not built yet.** The database schema covers all of it, so none of this needs a
 schema change:
@@ -67,13 +69,28 @@ preprocessing.
 Launching without this step is safe: the app detects the placeholder values and shows a
 setup screen instead of failing at the first network call.
 
-### 3. Run
+### 3. Sign in with Apple
+
+The button and the whole token exchange are built, but two things outside this
+repository have to be in place before it can complete:
+
+1. **An Apple Developer team.** `com.apple.developer.applesignin` is a capability that
+   needs a provisioning profile. Simulator builds are ad-hoc signed, which strips the
+   entitlement — the flow launches and then fails. Set your team in Xcode and the
+   entitlement in `TravelMap.entitlements` starts working.
+2. **Supabase's Apple provider.** Enable it under **Authentication → Providers → Apple**
+   and add the app's bundle identifier as an authorized client ID. Without it,
+   `signInWithIdToken` rejects the token.
+
+Email and password work without either.
+
+### 4. Run
 
 ```bash
 open TravelMap.xcodeproj
 ```
 
-Pick an iPhone simulator and run. Requires Xcode 16+ and the iOS 17 SDK or newer;
+Pick an iPhone simulator and run. Requires Xcode 26+ and the iOS 26 SDK;
 `supabase-swift` resolves automatically through Swift Package Manager.
 
 The project file is generated from [`project.yml`](project.yml) by
@@ -94,11 +111,11 @@ your development team.
 TravelMap/
   Models/         Country, Continent, Visit, Profile
   ViewModels/     SessionStore (auth), VisitStore (visits + derived stats)
-  Views/          Map/, AddVisit/, Stats/, Profile/, Auth/
-  Services/       SupabaseClient, AuthService, VisitsService, GeoDataService
-  Resources/      MapData/ (bundled GeoJSON), Assets.xcassets
+  Views/          Map/, AddVisit/, Stats/, Profile/, Auth/ — AppTheme holds the design rules
+  Services/       SupabaseClient, AuthService, AppleSignIn, VisitsService, GeoDataService
+  Resources/      MapData/ (bundled GeoJSON), Assets.xcassets, AppIcon.icon
 supabase/
-  schema.sql      Tables, RLS policies, triggers, storage bucket
+  schema.sql      Tables, RLS policies, triggers, storage bucket, delete_account()
 scripts/
   build-mapdata.mjs   Regenerates the bundled GeoJSON from Natural Earth
 ```
@@ -115,9 +132,31 @@ save a visit rather than rebuilding the other 235.
 **Map taps are hit-tested against the polygons directly**, not against renderer state,
 so a tap resolves the same way whether or not MapKit has drawn that country yet.
 
+**Liquid Glass has rules, and they're written down.** `AppTheme` carries the palette
+and the reasoning: glass belongs to the control layer and never to content; glass is
+never nested inside glass (sheets, the tab bar, and navigation bars already provide it,
+so nothing inside them adds more); `.regular` is the only safe choice over unpredictable
+content like the map, and `.clear` appears exactly once — on the landing screen, over a
+gradient the app draws and dims itself, which is the condition clear glass requires.
+
+**Motion is springs, not durations.** A spring absorbs a new target mid-flight, so
+re-tapping a chip during its animation feels answered rather than queued. The landing
+mark arrives on a multi-track `KeyframeAnimator` and settles into a `PhaseAnimator` loop;
+the stats headline pops on its own keyframe track; the add-visit flow uses zoom
+transitions, which stay interruptible so a half-finished dismiss hands the view back.
+
 **Photos live in a private bucket.** `visits.photo_urls` holds Storage *object paths*,
 not URLs; the app swaps them for short-lived signed URLs at display time. The column
 name comes from the original data model and was kept as-is.
+
+## App icon
+
+`TravelMap/Resources/AppIcon.icon` is an Icon Composer document: a `icon.json` describing
+layer groups plus flat SVG layers, which `actool` composites into the layered Liquid Glass
+icon with its light, dark, tinted, and clear appearances. The layers carry no baked-in
+shadows, highlights, or rounded corners — the system supplies all of that, and drawing it
+into the art is what makes an icon look wrong under the glass treatment. Open it in Icon
+Composer (bundled with Xcode) to adjust it visually.
 
 ## Map data
 
@@ -140,6 +179,14 @@ The reference set of 236 countries is every Natural Earth admin-0 entry that has
 3166-1 alpha-2 code, minus Antarctica. That includes dependencies with their own codes,
 such as Greenland and Puerto Rico. Somaliland, Northern Cyprus, and the Siachen Glacier
 have no ISO alpha-2 code and are left out.
+
+## Why iOS 26
+
+Liquid Glass — `glassEffect`, `GlassEffectContainer`, the glass button styles,
+`tabBarMinimizeBehavior`, `scrollEdgeEffectStyle` — is iOS 26 only and has no
+back-deployment. Adopting the design system is what sets the floor; the app targeted
+iOS 17 before this. Supporting both would mean maintaining a second, non-glass
+appearance for every surface.
 
 ## Known limitation: the world doesn't fit
 
