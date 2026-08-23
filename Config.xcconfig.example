@@ -3,14 +3,23 @@
 //   cp Config.xcconfig.example Config.xcconfig
 //
 // then fill in the two values below from your Supabase project's
-// Settings -> API page. Config.xcconfig is git-ignored; this template is not,
-// so never put real keys in this file.
+// Project Settings -> API Keys page. Config.xcconfig is git-ignored; this template is
+// not, so never put real keys in this file.
 //
-// The $() below is an empty xcconfig variable. It exists only to break up the
-// "//" in the URL, which xcconfig would otherwise strip as a comment.
+// SLASH exists because xcconfig strips "//" as a comment, even mid-value. Splitting the
+// URL's separator through a variable is the only form that survives both the xcconfig
+// parser and Info.plist preprocessing -- paste your URL around it exactly as shown, and
+// leave the "$(SLASH)$(SLASH)" alone.
 
-SUPABASE_URL = https:$()//your-project-ref.supabase.co
+SLASH = /
+SUPABASE_URL = https:$(SLASH)$(SLASH)your-project-ref.supabase.co
 
-// The anon/publishable key — safe to ship in a client, since Row Level Security
-// is what actually protects the data. Never put the service_role key here.
-SUPABASE_ANON_KEY = your-anon-key
+// The PUBLISHABLE key -- "sb_publishable_...", or the legacy key labelled "anon".
+// It is meant to ship inside a client: Row Level Security is what actually protects
+// the data.
+//
+// Never the secret key ("sb_secret_...", or a legacy "service_role" JWT). That one
+// bypasses Row Level Security entirely, and anything shipped in an app binary can be
+// read straight out of it. The app checks for this at launch and refuses to start.
+
+SUPABASE_ANON_KEY = your-publishable-key

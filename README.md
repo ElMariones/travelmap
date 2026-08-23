@@ -42,7 +42,7 @@ Create a project at [supabase.com](https://supabase.com), then:
 2. Go to **Authentication → Providers → Email**. For local development you'll probably
    want **Confirm email** off, so a new account is signed in immediately. With it on,
    the app tells you to check your inbox and then sign in — both paths work.
-3. Copy your project URL and anon key from **Project Settings → API**.
+3. Copy your project URL and **publishable** key from **Project Settings → API Keys**.
 
 ### 2. Credentials
 
@@ -53,8 +53,16 @@ cp Config.xcconfig.example Config.xcconfig
 Fill in the two values. `Config.xcconfig` is git-ignored; the `.example` template is
 what's committed, so keys never reach the repository.
 
-The anon key is meant to ship inside a client — row-level security is what actually
-protects the data. Don't put the `service_role` key here.
+Use the **publishable** key — `sb_publishable_…`, or the legacy key labelled `anon`.
+It's meant to ship inside a client; row-level security is what actually protects the
+data. **Never** the secret key (`sb_secret_…`, or a legacy `service_role` JWT): it
+bypasses RLS entirely, and anything in an app binary can be read straight out of it.
+The app detects a server-side key at launch and refuses to use it.
+
+Leave the `$(SLASH)$(SLASH)` in the URL alone and paste your project ref around it.
+xcconfig strips `//` as a comment even mid-value, and splitting the separator through a
+variable is the only form that survives both the xcconfig parser and Info.plist
+preprocessing.
 
 Launching without this step is safe: the app detects the placeholder values and shows a
 setup screen instead of failing at the first network call.
