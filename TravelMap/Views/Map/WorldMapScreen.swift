@@ -6,8 +6,21 @@ struct WorldMapScreen: View {
     @Environment(VisitStore.self) private var visitStore
 
     @State private var focusedContinent: Continent?
-    @State private var selectedCountry: Country?
-    @State private var isAddingVisit = false
+    @State private var activeSheet: ActiveSheet?
+
+    /// Both sheets go through one modifier on purpose: two `.sheet`s attached to the same
+    /// view silently leave one of them unable to present.
+    private enum ActiveSheet: Identifiable {
+        case countryDetail(Country)
+        case addVisit
+
+        var id: String {
+            switch self {
+            case .countryDetail(let country): return "country-\(country.code)"
+            case .addVisit: return "add-visit"
+            }
+        }
+    }
 
     private var progress: VisitProgress { visitStore.progress(for: focusedContinent) }
     private var badgeTitle: String { focusedContinent?.displayName ?? "World visited" }
@@ -25,13 +38,15 @@ struct WorldMapScreen: View {
 
             addVisitButton
         }
-        .sheet(item: $selectedCountry) { country in
-            CountryDetailSheet(country: country)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $isAddingVisit) {
-            AddVisitView(preselectedCountry: nil)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .countryDetail(let country):
+                CountryDetailSheet(country: country)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            case .addVisit:
+                AddVisitView(preselectedCountry: nil)
+            }
         }
     }
 
@@ -42,7 +57,7 @@ struct WorldMapScreen: View {
                 mapData: mapData,
                 visitedCountryCodes: visitStore.visitedCountryCodes,
                 focusedContinent: focusedContinent,
-                onSelectCountry: { selectedCountry = $0 }
+                onSelectCountry: { activeSheet = .countryDetail($0) }
             )
         } else {
             ZStack {
@@ -67,7 +82,7 @@ struct WorldMapScreen: View {
             HStack {
                 Spacer()
                 Button {
-                    isAddingVisit = true
+                    activeSheet = .addVisit
                 } label: {
                     Image(systemName: "plus")
                         .font(.title2.weight(.semibold))
