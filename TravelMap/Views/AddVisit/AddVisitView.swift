@@ -12,13 +12,13 @@ struct AddVisitView: View {
         NavigationStack {
             Group {
                 if let preselectedCountry {
-                    VisitFormView(country: preselectedCountry)
+                    VisitFormView(country: preselectedCountry, onSaved: dismissSheet)
                 } else {
                     CountryPickerList { pickedCountry = $0 }
                         .navigationTitle("Where have you been?")
                         .navigationBarTitleDisplayMode(.inline)
                         .navigationDestination(item: $pickedCountry) { country in
-                            VisitFormView(country: country)
+                            VisitFormView(country: country, onSaved: dismissSheet)
                         }
                 }
             }
@@ -29,15 +29,22 @@ struct AddVisitView: View {
             }
         }
     }
+
+    /// Saving closes the whole flow, not just the form. `VisitFormView`'s own `dismiss`
+    /// would only pop it back to the country list, which reads as if nothing was saved.
+    private func dismissSheet() {
+        dismiss()
+    }
 }
 
 /// Date, note, and photos for one country, then save.
 struct VisitFormView: View {
     let country: Country
+    /// Called once the visit is saved, to close the flow the form is presented inside.
+    let onSaved: () -> Void
 
     @Environment(SessionStore.self) private var session
     @Environment(VisitStore.self) private var visitStore
-    @Environment(\.dismiss) private var dismiss
 
     @State private var includeDate = false
     @State private var visitedAt = Date()
@@ -113,7 +120,7 @@ struct VisitFormView: View {
                 )
                 // No confirmation screen — the map is already filled in behind this sheet.
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                dismiss()
+                onSaved()
             } catch {
                 errorMessage = error.localizedDescription
                 isSaving = false

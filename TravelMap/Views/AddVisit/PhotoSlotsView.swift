@@ -36,11 +36,17 @@ struct PhotoSlotsView: View {
     @ViewBuilder
     private func slot(at index: Int) -> some View {
         if index < photos.count {
-            Image(uiImage: photos[index])
-                .resizable()
-                .scaledToFill()
-                .frame(maxWidth: .infinity)
+            // The square comes from a clear spacer that the image fills, rather than from
+            // the image itself: a landscape photo would otherwise stretch its slot wider
+            // than the empty ones beside it.
+            Color.clear
                 .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    Image(uiImage: photos[index])
+                        .resizable()
+                        .scaledToFill()
+                }
                 .clipShape(.rect(cornerRadius: 10))
                 .overlay(alignment: .topTrailing) {
                     Button {
