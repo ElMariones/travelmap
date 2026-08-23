@@ -51,6 +51,9 @@ struct Visit: Identifiable, Hashable, Codable, Sendable {
 /// The insert payload for a new visit. Separate from `Visit` so the database keeps
 /// ownership of `id` and `created_at`.
 struct NewVisit: Encodable, Sendable {
+    /// Generated on the client so the visit's photos can be uploaded to a Storage path
+    /// keyed by this id before the row itself exists.
+    let id: UUID
     let userID: UUID
     let countryCode: String
     let visitedAt: Date?
@@ -58,6 +61,7 @@ struct NewVisit: Encodable, Sendable {
     let photoURLs: [String]
 
     enum CodingKeys: String, CodingKey {
+        case id
         case userID = "user_id"
         case countryCode = "country_code"
         case visitedAt = "visited_at"
@@ -67,6 +71,7 @@ struct NewVisit: Encodable, Sendable {
 
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
         try container.encode(userID, forKey: .userID)
         try container.encode(countryCode, forKey: .countryCode)
         try container.encodeIfPresent(note, forKey: .note)

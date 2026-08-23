@@ -26,8 +26,12 @@ struct VisitsService: Sendable {
             .value
     }
 
-    /// Inserts the visit first, then uploads its photos under the new row's id so the
-    /// Storage path and the database row can't drift apart.
+    /// Uploads the photos, then inserts the row that points at them.
+    ///
+    /// The visit's id is generated here rather than by Postgres so the Storage path and
+    /// the row can share it. Doing the upload first keeps the save atomic from the user's
+    /// side: a failed upload leaves no half-saved visit behind, and if the insert is what
+    /// fails, the just-uploaded objects are cleaned up.
     func createVisit(
         userID: UUID,
         countryCode: String,
@@ -35,33 +39,30 @@ struct VisitsService: Sendable {
         note: String?,
         photos: [UIImage]
     ) async throws -> Visit {
+        let visitID = UUID()
+        let paths = photos.isEmpty ? [] : try await uploadPhotos(photos, userID: userID, visitID: visitID)
+
         let payload = NewVisit(
+            id: visitID,
             userID: userID,
             countryCode: countryCode,
             visitedAt: visitedAt,
             note: note?.isEmpty == true ? nil : note,
-            photoURLs: []
+            photoURLs: paths
         )
 
-        let visit: Visit = try await client
-            .from("visits")
-            .insert(payload)
-            .select()
-            .single()
-            .execute()
-            .value
-
-        guard !photos.isEmpty else { return visit }
-
-        let paths = try await uploadPhotos(photos, userID: userID, visitID: visit.id)
-        return try await client
-            .from("visits")
-            .update(["photo_urls": paths])
-            .eq("id", value: visit.id)
-            .select()
-            .single()
-            .execute()
-            .value
+        do {
+            return try await client
+                .from("visits")
+                .insert(payload)
+                .select()
+                .single()
+                .execute()
+                .value
+        } catch {
+            await removeUploadedPhotos(at: paths)
+            throw error
+        }
     }
 
     func deleteVisit(id: UUID) async throws {
@@ -74,19 +75,34 @@ struct VisitsService: Sendable {
     ///
     /// The bucket is private, so what's stored in `visits.photo_urls` is the object path;
     /// `signedURL(for:)` turns one into something an image view can load.
+    ///
+    /// The uuids are lowercased deliberately. Swift renders a `UUID` in uppercase, while
+    /// Postgres renders `auth.uid()::text` in lowercase, and the storage policy compares
+    /// the two — uppercase paths get rejected as somebody else's folder.
     private func uploadPhotos(_ photos: [UIImage], userID: UUID, visitID: UUID) async throws -> [String] {
         var paths: [String] = []
 
         for (index, photo) in photos.prefix(Self.maxPhotos).enumerated() {
             guard let data = PhotoProcessor.squareJPEGData(from: photo) else { continue }
-            let path = "\(userID.uuidString)/\(visitID.uuidString)/\(index).jpg"
-            try await client.storage
-                .from(SupabaseClientProvider.photoBucket)
-                .upload(path, data: data, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            let path = "\(userID.uuidString.lowercased())/\(visitID.uuidString.lowercased())/\(index).jpg"
+            do {
+                try await client.storage
+                    .from(SupabaseClientProvider.photoBucket)
+                    .upload(path, data: data, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            } catch {
+                await removeUploadedPhotos(at: paths)
+                throw error
+            }
             paths.append(path)
         }
 
         return paths
+    }
+
+    /// Best-effort cleanup, so a failed save doesn't leave photos nothing points at.
+    private func removeUploadedPhotos(at paths: [String]) async {
+        guard !paths.isEmpty else { return }
+        _ = try? await client.storage.from(SupabaseClientProvider.photoBucket).remove(paths: paths)
     }
 
     func signedURL(for path: String) async throws -> URL {

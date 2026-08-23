@@ -236,6 +236,11 @@ create policy "comments deletable by author or target" on public.comments
 
 -- Private bucket. The app writes to '<user_id>/<visit_id>/<n>.jpg' and reads back
 -- through signed URLs, so the first path segment is what ownership is checked against.
+--
+-- The comparisons below lower() that segment. Postgres renders auth.uid()::text in
+-- lowercase while some clients render a UUID in uppercase (Swift's UUID.uuidString
+-- does), and a case mismatch here fails as an opaque "violates row-level security
+-- policy" a long way from its cause.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('visit-photos', 'visit-photos', false, 10485760, array['image/jpeg', 'image/png', 'image/heic'])
 on conflict (id) do update
@@ -248,7 +253,7 @@ create policy "visit photos readable by owner and friends" on storage.objects
   for select using (
     bucket_id = 'visit-photos'
     and (
-      (storage.foldername(name))[1] = (select auth.uid())::text
+      lower((storage.foldername(name))[1]) = (select auth.uid())::text
       or public.are_friends(((storage.foldername(name))[1])::uuid, (select auth.uid()))
     )
   );
@@ -256,17 +261,17 @@ create policy "visit photos readable by owner and friends" on storage.objects
 drop policy if exists "visit photos writable by owner" on storage.objects;
 create policy "visit photos writable by owner" on storage.objects
   for insert with check (
-    bucket_id = 'visit-photos' and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id = 'visit-photos' and lower((storage.foldername(name))[1]) = (select auth.uid())::text
   );
 
 drop policy if exists "visit photos updatable by owner" on storage.objects;
 create policy "visit photos updatable by owner" on storage.objects
   for update using (
-    bucket_id = 'visit-photos' and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id = 'visit-photos' and lower((storage.foldername(name))[1]) = (select auth.uid())::text
   );
 
 drop policy if exists "visit photos deletable by owner" on storage.objects;
 create policy "visit photos deletable by owner" on storage.objects
   for delete using (
-    bucket_id = 'visit-photos' and (storage.foldername(name))[1] = (select auth.uid())::text
+    bucket_id = 'visit-photos' and lower((storage.foldername(name))[1]) = (select auth.uid())::text
   );
