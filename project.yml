@@ -2,7 +2,10 @@ name: TravelMap
 options:
   bundleIdPrefix: com.placeholder
   deploymentTarget:
-    iOS: "17.0"
+    # Liquid Glass (glassEffect, GlassEffectContainer, the glass button styles) is
+    # iOS 26 only. There is no back-deployment for it, so adopting the design system
+    # sets the floor.
+    iOS: "26.0"
   createIntermediateGroups: true
   groupSortPosition: none
 
@@ -36,12 +39,22 @@ targets:
       - path: TravelMap
         excludes:
           - "Resources/MapData/**"
+          - "Resources/AppIcon.icon/**"
       - path: TravelMap/Resources/MapData
         type: folder
+        buildPhase: resources
+      # Icon Composer document — actool compiles it into the layered Liquid Glass icon.
+      - path: TravelMap/Resources/AppIcon.icon
+        type: file
         buildPhase: resources
     dependencies:
       - package: Supabase
         product: Supabase
+    entitlements:
+      path: TravelMap/TravelMap.entitlements
+      properties:
+        com.apple.developer.applesignin:
+          - Default
     info:
       path: TravelMap/Info.plist
       properties:
