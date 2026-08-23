@@ -8,17 +8,21 @@ struct AddVisitView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pickedCountry: Country?
 
+    /// Source namespace for the zoom out of a country row into its form.
+    @Namespace private var zoom
+
     var body: some View {
         NavigationStack {
             Group {
                 if let preselectedCountry {
                     VisitFormView(country: preselectedCountry, onSaved: dismissSheet)
                 } else {
-                    CountryPickerList { pickedCountry = $0 }
+                    CountryPickerList(onSelect: { pickedCountry = $0 }, zoomNamespace: zoom)
                         .navigationTitle("Where have you been?")
                         .navigationBarTitleDisplayMode(.inline)
                         .navigationDestination(item: $pickedCountry) { country in
                             VisitFormView(country: country, onSaved: dismissSheet)
+                                .navigationTransition(.zoom(sourceID: country.code, in: zoom))
                         }
                 }
             }

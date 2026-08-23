@@ -5,6 +5,8 @@ struct CountryPickerList: View {
     @Environment(VisitStore.self) private var visitStore
 
     let onSelect: (Country) -> Void
+    /// Namespace owned by the flow above, so the pushed form can zoom out of its row.
+    var zoomNamespace: Namespace.ID?
 
     @State private var query = ""
 
@@ -36,10 +38,13 @@ struct CountryPickerList: View {
                     if visitStore.hasVisited(country.code) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(AppTheme.accent)
+                            .transition(.symbolEffect(.drawOn))
                     }
                 }
             }
+            .matchedTransitionSourceIfAvailable(id: country.code, in: zoomNamespace)
         }
+        .animation(AppTheme.Motion.snappy, value: visitStore.visitedCountryCodes)
         .listStyle(.plain)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search countries")
         .autocorrectionDisabled()
@@ -47,6 +52,19 @@ struct CountryPickerList: View {
             if results.isEmpty {
                 ContentUnavailableView.search(text: query)
             }
+        }
+    }
+}
+
+
+private extension View {
+    /// `matchedTransitionSource` needs a namespace; the picker is also usable without one.
+    @ViewBuilder
+    func matchedTransitionSourceIfAvailable(id: some Hashable, in namespace: Namespace.ID?) -> some View {
+        if let namespace {
+            matchedTransitionSource(id: id, in: namespace)
+        } else {
+            self
         }
     }
 }

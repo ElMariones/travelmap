@@ -1,15 +1,27 @@
 import SwiftUI
 
-/// The live "how much of this have I seen" badge that floats over the map.
+/// The live "how much of this have I seen" badge floating over the map.
+///
+/// Regular glass, not clear: what's behind it is the map, which can be pale ocean one
+/// moment and dark terrain the next. Regular adapts and carries its own legibility;
+/// clear would leave this unreadable half the time.
 struct VisitedBadge: View {
     let title: String
     let progress: VisitProgress
 
     var body: some View {
         HStack(spacing: 10) {
+            Image(systemName: "globe.europe.africa.fill")
+                .font(.footnote)
+                .foregroundStyle(AppTheme.accent)
+                // Fires when a new country is logged, so the map's fill-in has a
+                // matching beat up here.
+                .symbolEffect(.bounce, value: progress.visited)
+
             Text(progress.percentText)
                 .font(.title3.weight(.bold).monospacedDigit())
                 .foregroundStyle(AppTheme.accent)
+                .contentTransition(.numericText())
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -18,14 +30,12 @@ struct VisitedBadge: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .contentTransition(.numericText())
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(.regularMaterial, in: .capsule)
-        .overlay(Capsule().strokeBorder(.black.opacity(0.06)))
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        .contentTransition(.numericText())
-        .animation(.easeInOut(duration: 0.3), value: progress)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(AppTheme.regularGlass, in: .capsule)
+        .animation(AppTheme.Motion.snappy, value: progress)
     }
 }

@@ -1,19 +1,23 @@
 import SwiftUI
 
 /// The row of continent chips across the top of the map.
+///
+/// Each chip is its own glass capsule. They're siblings inside the screen's
+/// `GlassEffectContainer`, which is what lets neighbouring chips sample together and
+/// blend at the edges — the thing to avoid is *nesting* glass, not placing it side by side.
 struct ContinentFilterBar: View {
     @Binding var selection: Continent?
+
+    /// Shared namespace so the selected chip's tint travels between chips instead of
+    /// cross-fading in place.
+    @Namespace private var chips
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip(title: "All", isSelected: selection == nil) { selection = nil }
-
+                chip(title: "All", continent: nil)
                 ForEach(Continent.displayOrder) { continent in
-                    chip(title: continent.shortName, isSelected: selection == continent) {
-                        // Tapping the active chip returns you to the whole world.
-                        selection = selection == continent ? nil : continent
-                    }
+                    chip(title: continent.shortName, continent: continent)
                 }
             }
             .padding(.horizontal, 16)
@@ -21,25 +25,26 @@ struct ContinentFilterBar: View {
         .scrollClipDisabled()
     }
 
-    private func chip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) { action() }
+    private func chip(title: String, continent: Continent?) -> some View {
+        let isSelected = selection == continent
+
+        return Button {
+            withAnimation(AppTheme.Motion.snappy) {
+                // Tapping the active chip returns you to the whole world.
+                selection = isSelected ? nil : continent
+            }
         } label: {
             Text(title)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background {
-                    if isSelected {
-                        Capsule().fill(AppTheme.accent)
-                    } else {
-                        Capsule().fill(.regularMaterial)
-                    }
-                }
-                .overlay(Capsule().strokeBorder(.black.opacity(0.06)))
+                .foregroundStyle(isSelected ? .white : .primary)
+                .padding(.horizontal, 15)
+                .padding(.vertical, 9)
         }
         .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+        .glassEffect(
+            isSelected ? AppTheme.accentGlass : AppTheme.interactiveGlass,
+            in: .capsule
+        )
+        .glassEffectID(continent?.id ?? "all", in: chips)
     }
 }
