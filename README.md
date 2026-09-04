@@ -70,10 +70,10 @@ provider enabled; email and password work without either.
 Four settings, all together at the top of [`project.yml`](project.yml):
 
 ```yaml
-DEVELOPMENT_TEAM: MA7W7A6S66                     # your ten-character Team ID
+DEVELOPMENT_TEAM: YOUR_TEAM_ID                   # your ten-character Team ID
 SUPPORTS_SIGN_IN_WITH_APPLE: NO                  # YES needs a paid membership
-APP_BUNDLE_ID: com.mariolandaburu.travelmap      # must be globally unique
-APP_GROUP_ID: group.com.mariolandaburu.travelmap # how the app feeds the widget
+APP_BUNDLE_ID: com.yourname.travelmap            # must be globally unique
+APP_GROUP_ID: group.com.yourname.travelmap       # how the app feeds the widget
 ```
 
 Change them, run `xcodegen generate`, open the project, pick your phone and press Run.
