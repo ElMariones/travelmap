@@ -32,7 +32,9 @@ struct StoragePhotoView: View {
         .clipped()
         .task(id: path) {
             do {
-                url = try await VisitsService().signedURL(for: path)
+                // Through the cache, so re-appearing thumbnails don't re-sign a URL that
+                // is still valid, and four slots sharing a path share one request.
+                url = try await SignedURLCache.shared.url(for: path)
             } catch {
                 didFail = true
             }

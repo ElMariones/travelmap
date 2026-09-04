@@ -37,5 +37,14 @@ struct VisitedBadge: View {
         .padding(.vertical, 10)
         .glassEffect(AppTheme.regularGlass, in: .capsule)
         .animation(AppTheme.Motion.snappy, value: progress)
+        // A single pill of glass floating over the map: at accessibility sizes it would
+        // grow past the screen edges and cover the thing it describes. Capped here, and
+        // the Stats tab shows the same figures with no cap at all.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        // Three separate labels read as three unrelated fragments — "42 percent", "Europe",
+        // "21 of 51". Combined into one sentence they're a status.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue("\(progress.percentText), \(progress.visited) of \(progress.total) countries")
     }
 }

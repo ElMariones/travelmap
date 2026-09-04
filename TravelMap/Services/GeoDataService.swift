@@ -7,6 +7,49 @@ struct CountryShape {
     let multiPolygon: MKMultiPolygon
 }
 
+struct RegionShape {
+    let region: Region
+    let multiPolygon: MKMultiPolygon
+}
+
+/// The decoded regional reference set, indexed so a country detail screen only works
+/// with its own handful of overlays rather than scanning all 4,477 subdivisions.
+final class RegionMapData: @unchecked Sendable {
+    let shapes: [RegionShape]
+    let regions: [Region]
+    private let shapesByCountry: [String: [RegionShape]]
+    private let regionsByCode: [String: Region]
+
+    init(shapes: [RegionShape]) {
+        self.shapes = shapes
+        self.regions = shapes.map(\.region).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        self.shapesByCountry = Dictionary(grouping: shapes, by: { $0.region.countryCode })
+        self.regionsByCode = Dictionary(uniqueKeysWithValues: shapes.map { ($0.region.code, $0.region) })
+    }
+
+    func shapes(in countryCode: String) -> [RegionShape] { shapesByCountry[countryCode] ?? [] }
+    func regions(in countryCode: String) -> [Region] {
+        shapes(in: countryCode).map(\.region).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+    func region(code: String) -> Region? { regionsByCode[code] }
+    func supportsRegionMode(countryCode: String) -> Bool { shapes(in: countryCode).count > 1 }
+
+    func boundingRect(for countryCode: String) -> MKMapRect {
+        shapes(in: countryCode).reduce(MKMapRect.null) { $0.union($1.multiPolygon.boundingMapRect) }
+    }
+
+    func region(at coordinate: CLLocationCoordinate2D, countryCode: String) -> Region? {
+        let point = MKMapPoint(coordinate)
+        var best: (region: Region, area: Double)?
+        for shape in shapes(in: countryCode) where shape.multiPolygon.boundingMapRect.contains(point) {
+            guard shape.multiPolygon.polygons.contains(where: { $0.contains(point) }) else { continue }
+            let area = shape.multiPolygon.boundingMapRect.size.width * shape.multiPolygon.boundingMapRect.size.height
+            if best == nil || area < best!.area { best = (shape.region, area) }
+        }
+        return best?.region
+    }
+}
+
 /// The decoded contents of `countries.geojson`: the reference country list plus the
 /// polygons the world map draws.
 ///
@@ -83,6 +126,12 @@ enum GeoDataService {
         let continent: Continent
     }
 
+    private struct RegionProperties: Decodable {
+        let country: String
+        let code: String
+        let name: String
+    }
+
     /// Decodes `countries.geojson`. Runs off the main actor — it's a few hundred
     /// kilobytes of JSON and several thousand polygon vertices.
     static func loadCountries() async throws -> CountryMapData {
@@ -123,6 +172,47 @@ enum GeoDataService {
             }
 
             return CountryMapData(shapes: shapes)
+        }.value
+    }
+
+
+    /// Decodes the bundled first-level subdivisions. The geometry remains offline and
+    /// immutable; only a user's visited-region records come from the network.
+    static func loadRegions() async throws -> RegionMapData {
+        try await Task.detached(priority: .userInitiated) {
+            guard let url = Bundle.main.url(
+                forResource: "regions",
+                withExtension: "geojson",
+                subdirectory: Self.mapDataDirectory
+            ) else {
+                throw LoadError.missingResource("regions.geojson")
+            }
+
+            let objects = try MKGeoJSONDecoder().decode(Data(contentsOf: url))
+            let decoder = JSONDecoder()
+            var shapes: [RegionShape] = []
+            shapes.reserveCapacity(objects.count)
+
+            for case let feature as MKGeoJSONFeature in objects {
+                guard let propertyData = feature.properties,
+                      let properties = try? decoder.decode(RegionProperties.self, from: propertyData)
+                else { continue }
+                let polygons = feature.geometry.flatMap { geometry -> [MKPolygon] in
+                    switch geometry {
+                    case let multi as MKMultiPolygon: multi.polygons
+                    case let polygon as MKPolygon: [polygon]
+                    default: []
+                    }
+                }
+                guard !polygons.isEmpty else { continue }
+
+                let region = Region(code: properties.code, countryCode: properties.country, name: properties.name)
+                let multiPolygon = MKMultiPolygon(polygons)
+                multiPolygon.title = region.code
+                shapes.append(RegionShape(region: region, multiPolygon: multiPolygon))
+            }
+
+            return RegionMapData(shapes: shapes)
         }.value
     }
 }

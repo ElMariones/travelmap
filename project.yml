@@ -19,9 +19,46 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+    # ── The two things to change before running on a device ──────────────────────────
+    #
+    # Everything derives from these, so they are the only lines that need editing. The
+    # widget and test bundles append to APP_BUNDLE_ID; the App Group is named by
+    # APP_GROUP_ID in both entitlements files and in both Info.plists, and the app reads
+    # it back out of its own Info.plist at runtime rather than hardcoding it in Swift.
+    #
+    # They used to be spelled out in six places. When they disagreed, the app's writes
+    # went nowhere and the widget showed its placeholder for ever, with no error anywhere.
+
+    # Your Team ID — the ten characters from developer.apple.com ▸ Membership, or from
+    # Xcode ▸ Settings ▸ Accounts. Empty means Simulator only.
+    DEVELOPMENT_TEAM: MA7W7A6S66
+
+    # Sign in with Apple needs a *paid* Apple Developer Program membership. A personal
+    # team cannot create a provisioning profile with the capability at all — Xcode fails
+    # with "Personal development teams … do not support the Sign In with Apple
+    # capability" and then can't issue a certificate either.
+    #
+    # This flag and the `com.apple.developer.applesignin` entitlement below move together.
+    # `LandingView` reads it back out of Info.plist and simply doesn't offer the button
+    # when it's NO, rather than showing one that opens a sheet and fails.
+    SUPPORTS_SIGN_IN_WITH_APPLE: NO
+
+    # Must be globally unique across the App Store. Reverse-DNS on a domain you control,
+    # or anything nobody else has taken.
+    APP_BUNDLE_ID: com.mariolandaburu.travelmap
+
+    # How the app hands the widget its data. Must begin with "group.".
+    #
+    # App Groups *do* work on a free personal team — Xcode registers the group when it
+    # makes the profile. Only Sign in with Apple is blocked. (AltStore, which is sideloaded
+    # this way, uses `group.com.rileytestut.AltStore.<TEAMID>`; the team-id suffix is a
+    # collision-avoidance convention, not a requirement.)
+    #
+    # On a paid account, register it at developer.apple.com ▸ Identifiers ▸ App Groups.
+    APP_GROUP_ID: group.com.mariolandaburu.travelmap
 
 packages:
   Supabase:
@@ -40,6 +77,15 @@ targets:
         excludes:
           - "Resources/MapData/**"
           - "Resources/AppIcon.icon/**"
+      # Compiled into the widget extension as well — see the TravelMapWidgets target.
+      - path: Shared
+        excludes:
+          - "WidgetMapData/**"
+      # 41 KB. The app has MapKit and doesn't need it to draw its own map, but the debug
+      # widget preview renders the extension's views in-process and does.
+      - path: Shared/WidgetMapData
+        type: folder
+        buildPhase: resources
       - path: TravelMap/Resources/MapData
         type: folder
         buildPhase: resources
@@ -50,11 +96,17 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+      # Embeds the widget extension into the app, which is how a widget ships at all.
+      - target: TravelMapWidgets
     entitlements:
       path: TravelMap/TravelMap.entitlements
       properties:
-        com.apple.developer.applesignin:
-          - Default
+        # Paid membership only — see SUPPORTS_SIGN_IN_WITH_APPLE above. Restore this block
+        # and flip that flag to YES together; either one alone is broken.
+        # com.apple.developer.applesignin:
+        #   - Default
+        com.apple.security.application-groups:
+          - $(APP_GROUP_ID)
     info:
       path: TravelMap/Info.plist
       properties:
@@ -73,13 +125,79 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         SupabaseURL: $(SUPABASE_URL)
         SupabaseAnonKey: $(SUPABASE_ANON_KEY)
+        # Read back by TravelSnapshotStore, so the group is named in one place only.
+        AppGroupIdentifier: $(APP_GROUP_ID)
+        # Read back by LandingView, so the capability is declared in one place only.
+        SupportsSignInWithApple: $(SUPPORTS_SIGN_IN_WITH_APPLE)
     scheme:
-      testTargets: []
+      testTargets:
+        - TravelMapTests
       gatherCoverageData: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.placeholder.travelmap
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1,2"
+
+  # The home and lock screen widget. A separate process with a 40 MB ceiling, no MapKit,
+  # and no Supabase session — everything it draws comes from the App Group snapshot the
+  # app writes after each change. See Shared/TravelSnapshot.swift.
+  TravelMapWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: TravelMapWidgets
+        excludes:
+          - "Info.plist"
+          - "TravelMapWidgets.entitlements"
+      - path: Shared
+        excludes:
+          - "WidgetMapData/**"
+      - path: Shared/WidgetMapData
+        type: folder
+        buildPhase: resources
+      # The accent colour has to resolve inside this bundle too; an asset catalog is not
+      # shared across targets just because the code is.
+      - path: TravelMap/Resources/Assets.xcassets
+        buildPhase: resources
+    entitlements:
+      path: TravelMapWidgets/TravelMapWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(APP_GROUP_ID)
+    info:
+      path: TravelMapWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: TravelMap
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AppGroupIdentifier: $(APP_GROUP_ID)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).widgets
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  # Unit tests for the logic that fails quietly: percentages, milestone detection, the
+  # Postgres date format, the map's ray-casting hit test, and the widget's shared state.
+  # Hosted by the app so bundled resources — the world data both maps are built from —
+  # resolve the same way they do at runtime.
+  TravelMapTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - TravelMapTests
+    dependencies:
+      - target: TravelMap
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/TravelMap.app/TravelMap
+        BUNDLE_LOADER: $(TEST_HOST)

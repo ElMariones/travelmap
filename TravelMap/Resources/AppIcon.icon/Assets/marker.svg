@@ -1,4 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- Sits in the rim's gap, so it reads as a pin on the globe rather than a blob on the grid. -->
-  <circle cx="714" cy="310" r="72" fill="#ffffff"/>
-</svg>

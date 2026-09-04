@@ -5,6 +5,7 @@ import SwiftUI
 struct ProfileView: View {
     @Environment(SessionStore.self) private var session
     @Environment(VisitStore.self) private var visitStore
+    @Environment(Haptics.self) private var haptics
 
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingDelete = false
@@ -28,8 +29,21 @@ struct ProfileView: View {
                 Section("Your travels") {
                     LabeledContent("Countries visited", value: "\(visitStore.visitedCountryCodes.count)")
                         .contentTransition(.numericText())
-                    LabeledContent("Visits logged", value: "\(visitStore.visits.count)")
+                    LabeledContent("Regions explored", value: "\(visitStore.visitedRegionCodes.count)")
                         .contentTransition(.numericText())
+                    LabeledContent("Visits logged", value: "\(visitStore.visits.count + visitStore.regionVisits.count)")
+                        .contentTransition(.numericText())
+                }
+
+                Section {
+                    Toggle("Haptics", isOn: Binding(
+                        get: { haptics.isEnabled },
+                        set: { haptics.isEnabled = $0 }
+                    ))
+                } header: {
+                    Text("Feedback")
+                } footer: {
+                    Text("Taps and celebrations you can feel. iOS has no system setting for these, so this is the switch.")
                 }
 
                 Section {
@@ -62,9 +76,12 @@ struct ProfileView: View {
                 }
 
                 Section {
-                    Text("V1: countries, photos, and stats. Regions and friends are in the database schema but not built yet.")
-                        .font(.footnote)
+                    LabeledContent("Version", value: Bundle.main.shortVersionString)
                         .foregroundStyle(.secondary)
+
+                    #if DEBUG
+                    NavigationLink("Widget preview") { WidgetPreviewScreen() }
+                    #endif
                 }
             }
             .navigationTitle("Profile")
@@ -94,6 +111,7 @@ struct ProfileView: View {
             Image(systemName: "person.crop.circle.fill")
                 .font(.system(size: 44))
                 .foregroundStyle(AppTheme.accent)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.profile?.displayName ?? "Traveller")
@@ -105,12 +123,13 @@ struct ProfileView: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
     private var friendCodeRow: some View {
         if let friendCode = session.profile?.friendCode {
-            HStack {
+            HStack(spacing: 4) {
                 Text(friendCode)
                     .font(.title3.weight(.semibold).monospaced())
                     .textSelection(.enabled)
@@ -119,19 +138,32 @@ struct ProfileView: View {
 
                 Button {
                     UIPasteboard.general.string = friendCode
+                    haptics.fire(.selection)
                     withAnimation(AppTheme.Motion.snappy) { didCopyCode = true }
+                    // Reverts, so the row doesn't read "copied" for the rest of the
+                    // session and stop meaning anything.
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        withAnimation(AppTheme.Motion.snappy) { didCopyCode = false }
+                    }
                 } label: {
                     Image(systemName: didCopyCode ? "checkmark" : "doc.on.doc")
                         .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(AppTheme.accent)
-                .accessibilityLabel("Copy friend code")
+                .accessibilityLabel(didCopyCode ? "Friend code copied" : "Copy friend code")
 
                 ShareLink(item: friendCode) {
                     Image(systemName: "square.and.arrow.up")
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
                 }
+                .accessibilityLabel("Share friend code")
             }
+            .accessibilityElement(children: .contain)
         } else {
             Text("Not available yet")
                 .foregroundStyle(.secondary)
@@ -147,8 +179,23 @@ struct ProfileView: View {
                 visitStore.clearUserData()
             } catch {
                 deleteError = error.localizedDescription
+                haptics.fire(.failure)
             }
             isDeleting = false
         }
+    }
+}
+
+extension Bundle {
+    /// The marketing version, with the build number appended in Debug so a TestFlight
+    /// screenshot says which build it came from.
+    var shortVersionString: String {
+        let version = infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        #if DEBUG
+        let build = infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        return "\(version) (\(build))"
+        #else
+        return version
+        #endif
     }
 }

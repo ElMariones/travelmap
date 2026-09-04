@@ -6,25 +6,8 @@
     {
       "layers": [
         {
-          "image-name": "globe.svg",
-          "name": "Globe"
-        }
-      ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.35
-      },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.45
-      }
-    },
-    {
-      "layers": [
-        {
-          "image-name": "marker.svg",
-          "name": "Marker"
+          "image-name": "3-pin.svg",
+          "name": "Pin"
         }
       ],
       "shadow": {
@@ -34,7 +17,41 @@
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.6
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "2-graticule.svg",
+          "name": "Graticule"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.2
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": true,
+        "value": 0.25
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "1-globe.svg",
+          "name": "Globe"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.35
       }
     }
   ],

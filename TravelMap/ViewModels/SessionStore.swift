@@ -20,6 +20,33 @@ final class SessionStore {
     /// Set after a sign-up that needs email confirmation, so the UI can explain the wait.
     var pendingEmailConfirmation: String?
 
+    /// Name to greet with once this account's first session appears.
+    ///
+    /// It survives a relaunch on purpose. Registering with email can require confirming
+    /// the address first, which means the account is created in one launch and signed in
+    /// during another — often days later. A welcome that only fires when the sign-up and
+    /// the session happen in the same process would simply never fire for those users.
+    private static let pendingWelcomeKey = "welcome.pendingName"
+
+    private var pendingWelcomeName: String? {
+        get { UserDefaults.standard.string(forKey: Self.pendingWelcomeKey) }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: Self.pendingWelcomeKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.pendingWelcomeKey)
+            }
+        }
+    }
+
+    /// Returns a welcome to show exactly once, or `nil` on every ordinary sign-in — the
+    /// welcome belongs to registration, not to coming back.
+    func consumeWelcome() -> PendingWelcome? {
+        guard let stored = pendingWelcomeName else { return nil }
+        pendingWelcomeName = nil
+        return PendingWelcome(name: stored.isEmpty ? nil : stored)
+    }
+
     /// Held between `SignInWithAppleButton`'s request and completion callbacks — the raw
     /// half of the nonce whose hash went to Apple.
     private var pendingAppleNonce: AppleSignIn.Nonce?
@@ -108,6 +135,7 @@ final class SessionStore {
     func signUp(email: String, password: String, displayName: String) async throws {
         guard let authService else { throw SupabaseNotConfiguredError() }
         let hasSession = try await authService.signUp(email: email, password: password, displayName: displayName)
+        pendingWelcomeName = displayName
         if !hasSession {
             pendingEmailConfirmation = email
         }
@@ -127,6 +155,7 @@ final class SessionStore {
         guard let authService else { throw SupabaseNotConfiguredError() }
         try await authService.deleteAccount()
         AppleSignIn.storedUserID = nil
+        pendingWelcomeName = nil
         profile = nil
         state = .signedOut
     }
@@ -156,6 +185,9 @@ final class SessionStore {
             let credential = try AppleSignIn.credential(from: authorization)
             AppleSignIn.rememberUserID(from: authorization)
             pendingAppleName = credential.fullName
+            // Apple hands over a name only on the *first* authorization for this app, so
+            // its presence is the one reliable signal that this is a new account.
+            if let name = credential.fullName { pendingWelcomeName = name }
             try await authService.signInWithApple(credential: credential, nonce: nonce)
         }
     }
@@ -172,6 +204,28 @@ final class SessionStore {
             await signOut()
         }
     }
+}
+
+#if DEBUG
+extension SessionStore {
+    func loadScreenshotProfile(userID: UUID) {
+        observationTask?.cancel()
+        observationTask = nil
+        state = .signedIn(userID: userID)
+        profile = Profile(
+            id: userID,
+            displayName: "Mario",
+            friendCode: "TRVL2026",
+            avatarURL: nil
+        )
+    }
+}
+#endif
+
+/// A greeting owed to a newly registered account. The name is optional because Apple
+/// doesn't always give one, and an anonymous welcome still beats no welcome.
+struct PendingWelcome: Equatable {
+    let name: String?
 }
 
 /// Carries an already-humanised Apple authorization failure to the UI.

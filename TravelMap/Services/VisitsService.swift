@@ -35,7 +35,9 @@ struct VisitsService: Sendable {
     func createVisit(
         userID: UUID,
         countryCode: String,
+        title: String,
         visitedAt: Date?,
+        datePrecision: VisitDatePrecision?,
         note: String?,
         photos: [UIImage]
     ) async throws -> Visit {
@@ -46,7 +48,9 @@ struct VisitsService: Sendable {
             id: visitID,
             userID: userID,
             countryCode: countryCode,
+            title: title,
             visitedAt: visitedAt,
+            datePrecision: datePrecision,
             note: note?.isEmpty == true ? nil : note,
             photoURLs: paths
         )
@@ -65,8 +69,52 @@ struct VisitsService: Sendable {
         }
     }
 
-    func deleteVisit(id: UUID) async throws {
-        try await client.from("visits").delete().eq("id", value: id).execute()
+    /// Uploads additions first, updates the row once the complete final photo set exists,
+    /// then removes discarded objects. A failed row update cleans up only the new uploads,
+    /// leaving the original visit untouched.
+    func updateVisit(
+        _ visit: Visit,
+        title: String,
+        visitedAt: Date?,
+        datePrecision: VisitDatePrecision?,
+        note: String?,
+        retainedPhotoPaths: [String],
+        newPhotos: [UIImage]
+    ) async throws -> Visit {
+        let retained = retainedPhotoPaths.filter { visit.photos.contains($0) }
+        let additions = Array(newPhotos.prefix(max(0, Self.maxPhotos - retained.count)))
+        let newPaths = additions.isEmpty
+            ? []
+            : try await uploadPhotos(additions, userID: visit.userID, visitID: visit.id)
+        let finalPaths = retained + newPaths
+        let payload = VisitUpdate(
+            title: title,
+            visitedAt: visitedAt,
+            datePrecision: datePrecision,
+            note: note?.isEmpty == true ? nil : note,
+            photoURLs: finalPaths
+        )
+
+        do {
+            let updated: Visit = try await client
+                .from("visits")
+                .update(payload)
+                .eq("id", value: visit.id)
+                .select()
+                .single()
+                .execute()
+                .value
+            await removeUploadedPhotos(at: visit.photos.filter { !retained.contains($0) })
+            return updated
+        } catch {
+            await removeUploadedPhotos(at: newPaths)
+            throw error
+        }
+    }
+
+    func deleteVisit(_ visit: Visit) async throws {
+        try await client.from("visits").delete().eq("id", value: visit.id).execute()
+        await removeUploadedPhotos(at: visit.photos)
     }
 
     // MARK: - Photos
@@ -84,7 +132,10 @@ struct VisitsService: Sendable {
 
         for (index, photo) in photos.prefix(Self.maxPhotos).enumerated() {
             guard let data = PhotoProcessor.squareJPEGData(from: photo) else { continue }
-            let path = "\(userID.uuidString.lowercased())/\(visitID.uuidString.lowercased())/\(index).jpg"
+            // A unique filename prevents an edit from overwriting a retained image when
+            // slots are removed and refilled in a different order.
+            let filename = "\(index)-\(UUID().uuidString.lowercased()).jpg"
+            let path = "\(userID.uuidString.lowercased())/\(visitID.uuidString.lowercased())/\(filename)"
             do {
                 try await client.storage
                     .from(SupabaseClientProvider.photoBucket)

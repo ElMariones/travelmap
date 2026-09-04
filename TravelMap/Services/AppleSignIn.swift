@@ -5,6 +5,26 @@ import Foundation
 /// The pieces of Sign in with Apple that aren't Supabase's concern: the nonce, and
 /// pulling the useful parts out of a credential.
 enum AppleSignIn {
+    /// Whether this build can actually complete a Sign in with Apple.
+    ///
+    /// The capability needs a paid Apple Developer Program membership: a personal team
+    /// can't create a provisioning profile with it at all. Rather than hardcode that here,
+    /// the answer comes from `SUPPORTS_SIGN_IN_WITH_APPLE` in `project.yml` by way of
+    /// Info.plist — the same setting that controls whether the entitlement is requested,
+    /// so the button and the entitlement can't drift apart.
+    ///
+    /// Offering a button that opens the system sheet and then fails is worse than not
+    /// offering it: the failure looks like the app is broken, not like a capability the
+    /// build doesn't have.
+    static let isAvailable: Bool = {
+        // Build settings arrive as the strings "YES"/"NO", not as booleans.
+        switch Bundle.main.object(forInfoDictionaryKey: "SupportsSignInWithApple") {
+        case let flag as Bool: return flag
+        case let flag as String: return flag == "YES" || flag == "true" || flag == "1"
+        default: return false
+        }
+    }()
+
     /// A one-time value that ties the credential Apple returns to the request this app
     /// made. Apple receives the SHA-256 hash and embeds it in the identity token; the
     /// backend receives the raw value and checks that it hashes to what the token claims.

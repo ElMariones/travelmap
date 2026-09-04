@@ -67,6 +67,9 @@ struct CountryMapView: UIViewRepresentable {
         private var requestedContinent: Continent?
         private var appliedContinent: Continent??
         private var isReadyForCamera = false
+        /// Whether the camera has already settled onto the user's own countries. Only ever
+        /// happens once, and only while the All chip is selected.
+        private var hasFramedVisited = false
 
         init(mapData: CountryMapData, onSelectCountry: @escaping (Country) -> Void) {
             self.mapData = mapData
@@ -105,6 +108,8 @@ struct CountryMapView: UIViewRepresentable {
                 renderer.fillColor = fillColor(visited: codes.contains(code))
                 renderer.setNeedsDisplay()
             }
+
+            frameVisitedIfNeeded()
         }
 
         // MARK: - Camera
@@ -113,6 +118,44 @@ struct CountryMapView: UIViewRepresentable {
         func markReadyForCamera() {
             isReadyForCamera = true
             applyCamera(animated: false)
+            frameVisitedIfNeeded()
+        }
+
+        /// Settles the camera onto the countries the user has actually been to, once, as
+        /// soon as they arrive.
+        ///
+        /// Visits load a moment after the map does, so the first frame is necessarily the
+        /// default world view. Opening the app and being shown the middle of the Atlantic
+        /// while your own map sits off-screen is a poor greeting; this pans to your
+        /// countries the moment there are any to pan to, and then leaves the camera alone.
+        private func frameVisitedIfNeeded() {
+            guard isReadyForCamera, !hasFramedVisited, requestedContinent == nil,
+                  let mapView, let rect = visitedBoundingRect()
+            else { return }
+            hasFramedVisited = true
+            mapView.setVisibleMapRect(rect, edgePadding: CountryMapView.cameraPadding, animated: true)
+        }
+
+        /// The projected rect covering every visited country, with room to breathe.
+        ///
+        /// Returns `nil` rather than a world-sized rect when the spread is close to global:
+        /// at that point the default framing is already the answer, and a computed rect
+        /// would only nudge the camera for no visible gain. Countries either side of the
+        /// antimeridian are what produce those degenerate rects — one visit to Fiji and one
+        /// to Chile spans the planet the long way round.
+        private func visitedBoundingRect() -> MKMapRect? {
+            let visited = mapData.shapes.filter { visitedCountryCodes.contains($0.country.code) }
+            guard !visited.isEmpty else { return nil }
+
+            let rect = visited.dropFirst().reduce(visited[0].multiPolygon.boundingMapRect) {
+                $0.union($1.multiPolygon.boundingMapRect)
+            }
+            guard rect.width < MKMapRect.world.width * 0.6 else { return nil }
+
+            // A single country would otherwise fill the screen edge to edge, with no sense
+            // of where in the world it is.
+            let padding = max(rect.width, rect.height) * 0.9
+            return rect.insetBy(dx: -padding, dy: -padding)
         }
 
         func focus(on continent: Continent?) {

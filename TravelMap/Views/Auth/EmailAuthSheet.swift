@@ -13,6 +13,7 @@ struct EmailAuthSheet: View {
     }
 
     @Environment(SessionStore.self) private var session
+    @Environment(Haptics.self) private var haptics
     @Environment(\.dismiss) private var dismiss
 
     @State private var mode: Mode = .signIn
@@ -25,8 +26,12 @@ struct EmailAuthSheet: View {
     @FocusState private var focusedField: Field?
     private enum Field { case name, email, password }
 
+    /// Supabase's own floor. Stated in the UI rather than left for the user to discover
+    /// by watching a button refuse to enable.
+    private static let minimumPasswordLength = 6
+
     private var canSubmit: Bool {
-        guard email.contains("@"), password.count >= 6 else { return false }
+        guard email.contains("@"), password.count >= Self.minimumPasswordLength else { return false }
         return mode == .signIn || !displayName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -54,12 +59,26 @@ struct EmailAuthSheet: View {
                                 .keyboardType(.emailAddress)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .password }
                         }
 
                         field(.password) {
                             SecureField("Password", text: $password)
                                 .textContentType(mode == .signIn ? .password : .newPassword)
+                                .submitLabel(.go)
                                 .onSubmit(submit)
+                        }
+
+                        if mode == .signUp, !password.isEmpty, password.count < Self.minimumPasswordLength {
+                            Label(
+                                "Passwords need at least \(Self.minimumPasswordLength) characters.",
+                                systemImage: "info.circle"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .transition(.opacity)
                         }
                     }
 
@@ -77,7 +96,9 @@ struct EmailAuthSheet: View {
                     Button(action: submit) {
                         Group {
                             if isWorking {
-                                ProgressView().tint(.white)
+                                ProgressView()
+                                    .tint(.white)
+                                    .accessibilityLabel(mode == .signIn ? "Signing in" : "Creating your account")
                             } else {
                                 Text(mode.title).font(.headline)
                             }
@@ -91,6 +112,7 @@ struct EmailAuthSheet: View {
                 .padding(24)
                 .animation(AppTheme.Motion.snappy, value: mode)
                 .animation(AppTheme.Motion.snappy, value: errorMessage)
+                .animation(AppTheme.Motion.snappy, value: password.count < Self.minimumPasswordLength)
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Continue with email")
@@ -165,6 +187,7 @@ struct EmailAuthSheet: View {
                 }
             } catch {
                 errorMessage = error.localizedDescription
+                haptics.fire(.failure)
             }
             isWorking = false
         }

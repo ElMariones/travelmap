@@ -6,6 +6,8 @@ import SwiftUI
 /// app controls it, it can also guarantee the dimming that clear glass needs to stay
 /// legible, which is exactly the condition under which clear glass is allowed at all.
 struct AuroraBackground: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// Redraw rate. The motion is a slow drift, so a third of display refresh is
     /// indistinguishable from full rate and costs a lot less.
     private static let frameInterval = 1.0 / 30.0
@@ -23,9 +25,15 @@ struct AuroraBackground: View {
     ]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: Self.frameInterval)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            MeshGradient(width: 3, height: 3, points: points(at: t), colors: Self.palette)
+        if reduceMotion {
+            // The same mesh, frozen. Reduce Motion asks for less movement, not for a flat
+            // colour — the gradient is the screen's identity and it survives standing still.
+            MeshGradient(width: 3, height: 3, points: points(at: 0), colors: Self.palette)
+        } else {
+            TimelineView(.animation(minimumInterval: Self.frameInterval)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                MeshGradient(width: 3, height: 3, points: points(at: t), colors: Self.palette)
+            }
         }
     }
 

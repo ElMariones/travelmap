@@ -5,6 +5,11 @@ import SwiftUI
 /// alternative, and it lives behind a sheet so this screen stays a single decision.
 struct LandingView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(Haptics.self) private var haptics
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The wordmark scales with the user's text size like every other piece of type here.
+    @ScaledMetric(relativeTo: .largeTitle) private var wordmarkSize: CGFloat = 44
 
     @State private var isShowingEmailAuth = false
     @State private var isWorking = false
@@ -53,8 +58,9 @@ struct LandingView: View {
 
             VStack(spacing: 10) {
                 Text("TravelMap")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .font(.system(size: wordmarkSize, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
+                    .minimumScaleFactor(0.6)
 
                 Text("Log a country in ten seconds\nand watch your world fill in.")
                     .font(.title3)
@@ -76,7 +82,7 @@ struct LandingView: View {
             }
         }
         .opacity(hasAppeared ? 1 : 0)
-        .animation(AppTheme.Motion.gentle.delay(0.15), value: hasAppeared)
+        .animation(reduceMotion ? .easeIn(duration: 0.2) : AppTheme.Motion.gentle.delay(0.15), value: hasAppeared)
     }
 
     /// The mark arrives on a multi-track keyframe sequence — scale, lift, and tilt each
@@ -89,14 +95,17 @@ struct LandingView: View {
             // Deliberately no indefinite symbol effect here. `breathe` dips a symbol's
             // opacity far enough that a brand mark visibly washes out at the bottom of
             // the cycle; the phase drift below gives it life without fading it.
-            .phaseAnimator(DriftPhase.allCases, trigger: hasAppeared) { view, phase in
+            // Both the idle drift and the entrance are decoration on a mark that is
+            // perfectly legible standing still, so Reduce Motion removes them outright
+            // rather than substituting something smaller.
+            .phaseAnimator(DriftPhase.allCases, trigger: hasAppeared && !reduceMotion) { view, phase in
                 view
-                    .offset(y: phase.lift)
-                    .rotationEffect(.degrees(phase.tilt))
+                    .offset(y: reduceMotion ? 0 : phase.lift)
+                    .rotationEffect(.degrees(reduceMotion ? 0 : phase.tilt))
             } animation: { _ in
                 AppTheme.Motion.gentle.delay(0.1)
             }
-            .keyframeAnimator(initialValue: EntrancePose(), trigger: hasAppeared) { view, pose in
+            .keyframeAnimator(initialValue: EntrancePose(), trigger: hasAppeared && !reduceMotion) { view, pose in
                 view
                     .scaleEffect(pose.scale)
                     .rotationEffect(.degrees(pose.rotation))
@@ -121,34 +130,31 @@ struct LandingView: View {
                 }
             }
             .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
+            .accessibilityHidden(true)
     }
 
     // MARK: - Actions
 
     private var actions: some View {
         VStack(spacing: 14) {
-            SignInWithAppleButton(.signIn) { request in
-                session.prepareAppleRequest(request)
-            } onCompletion: { result in
-                handleApple(result)
+            // Absent on builds that can't complete it — see `AppleSignIn.isAvailable`.
+            // Email then becomes the primary path rather than the alternative, so it takes
+            // the prominent treatment the Apple button would have had. A screen whose only
+            // action is styled as the secondary one reads as if something is missing.
+            if AppleSignIn.isAvailable {
+                SignInWithAppleButton(.signIn) { request in
+                    session.prepareAppleRequest(request)
+                } onCompletion: { result in
+                    handleApple(result)
+                }
+                .signInWithAppleButtonStyle(.white)
+                .frame(height: 52)
+                .clipShape(.capsule)
+                .disabled(isWorking)
             }
-            .signInWithAppleButtonStyle(.white)
-            .frame(height: 52)
-            .clipShape(.capsule)
-            .disabled(isWorking)
 
-            Button {
-                isShowingEmailAuth = true
-            } label: {
-                Text("Continue with email")
-                    .font(.headline)
-                    // Glass samples what's behind it, and down here that's the dark end
-                    // of the gradient. The accent tint would sit at about 2:1 against it.
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-            }
-            .buttonStyle(.glass)
-            .disabled(isWorking)
+            emailButton
+                .disabled(isWorking)
 
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
@@ -168,8 +174,32 @@ struct LandingView: View {
         }
         .animation(AppTheme.Motion.snappy, value: errorMessage)
         .opacity(hasAppeared ? 1 : 0)
-        .offset(y: hasAppeared ? 0 : 24)
-        .animation(AppTheme.Motion.bouncy.delay(0.3), value: hasAppeared)
+        .offset(y: hasAppeared || reduceMotion ? 0 : 24)
+        .animation(reduceMotion ? .easeIn(duration: 0.2) : AppTheme.Motion.bouncy.delay(0.3), value: hasAppeared)
+    }
+
+    /// Email, styled by whether it's the alternative or the only way in.
+    ///
+    /// Written out twice because `buttonStyle` takes a concrete type — there's no
+    /// `AnyButtonStyle` to pick between at runtime, and erasing it by hand for two
+    /// variants of one button costs more than the duplication does.
+    @ViewBuilder
+    private var emailButton: some View {
+        let label = Text("Continue with email")
+            .font(.headline)
+            // Glass samples what's behind it, and down here that's the dark end of the
+            // gradient. The accent tint would sit at about 2:1 against it.
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 52)
+
+        if AppleSignIn.isAvailable {
+            Button { isShowingEmailAuth = true } label: { label }
+                .buttonStyle(.glass)
+        } else {
+            Button { isShowingEmailAuth = true } label: { label }
+                .buttonStyle(.glassProminent)
+                .tint(AppTheme.accent)
+        }
     }
 
     private func handleApple(_ result: Result<ASAuthorization, any Error>) {
@@ -180,6 +210,7 @@ struct LandingView: View {
                 try await session.completeAppleSignIn(result)
             } catch {
                 errorMessage = error.localizedDescription
+                haptics.fire(.failure)
             }
             isWorking = false
         }
@@ -208,4 +239,5 @@ private struct EntrancePose {
 #Preview {
     LandingView()
         .environment(SessionStore())
+        .environment(Haptics())
 }

@@ -23,15 +23,52 @@ create table if not exists public.visits (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
   country_code text not null,          -- ISO 3166-1 alpha-2, e.g. 'ES'
+  title text,
   visited_at date,
+  -- Partial dates are stored as Jan 1 for a year or the first day of a month. Existing
+  -- V1 rows may have a full date and no precision, which the app continues to display.
+  date_precision text,
   note text,
   -- Object paths in the private `visit-photos` bucket, at most four. Paths rather than
   -- URLs because the bucket is private and links have to be signed at read time.
   photo_urls text[],
   created_at timestamptz not null default now(),
   constraint visits_country_code_format check (country_code ~ '^[A-Z]{2}$'),
+  constraint visits_title_length check (title is null or length(trim(title)) between 1 and 100),
+  constraint visits_date_precision check (
+    (date_precision is null)
+    or (date_precision = 'year' and visited_at is not null and extract(month from visited_at) = 1 and extract(day from visited_at) = 1)
+    or (date_precision = 'month' and visited_at is not null and extract(day from visited_at) = 1)
+  ),
   constraint visits_photo_limit check (photo_urls is null or array_length(photo_urls, 1) <= 4)
 );
+
+-- `create table if not exists` does not add columns to an existing V1 project. Keep this
+-- migration inline so re-running the documented schema upgrades that project as well as
+-- creating a fresh one.
+alter table public.visits add column if not exists title text;
+alter table public.visits add column if not exists date_precision text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'visits_title_length' and conrelid = 'public.visits'::regclass
+  ) then
+    alter table public.visits add constraint visits_title_length
+      check (title is null or length(trim(title)) between 1 and 100);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'visits_date_precision' and conrelid = 'public.visits'::regclass
+  ) then
+    alter table public.visits add constraint visits_date_precision check (
+      (date_precision is null)
+      or (date_precision = 'year' and visited_at is not null and extract(month from visited_at) = 1 and extract(day from visited_at) = 1)
+      or (date_precision = 'month' and visited_at is not null and extract(day from visited_at) = 1)
+    );
+  end if;
+end $$;
 
 create table if not exists public.region_visits (
   id uuid primary key default gen_random_uuid(),

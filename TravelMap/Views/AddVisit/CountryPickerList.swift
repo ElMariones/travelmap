@@ -3,6 +3,7 @@ import SwiftUI
 /// Searchable list of every country in the reference set.
 struct CountryPickerList: View {
     @Environment(VisitStore.self) private var visitStore
+    @Environment(Haptics.self) private var haptics
 
     let onSelect: (Country) -> Void
     /// Namespace owned by the flow above, so the pushed form can zoom out of its row.
@@ -21,10 +22,13 @@ struct CountryPickerList: View {
     var body: some View {
         List(results) { country in
             Button {
+                haptics.fire(.selection)
                 onSelect(country)
             } label: {
                 HStack(spacing: 12) {
-                    Text(country.flag).font(.title2)
+                    Text(country.flag)
+                        .font(.title2)
+                        .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(country.name).foregroundStyle(.primary)
@@ -41,8 +45,12 @@ struct CountryPickerList: View {
                             .transition(.symbolEffect(.drawOn))
                     }
                 }
+                .frame(minHeight: 44)
             }
             .matchedTransitionSourceIfAvailable(id: country.code, in: zoomNamespace)
+            // The tick is the only thing marking a country as visited, and a glyph on its
+            // own says nothing out loud.
+            .accessibilityValue(visitStore.hasVisited(country.code) ? "Visited" : "Not visited")
         }
         .animation(AppTheme.Motion.snappy, value: visitStore.visitedCountryCodes)
         .listStyle(.plain)
